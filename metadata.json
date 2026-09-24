@@ -1,0 +1,6 @@
+{
+  "name": "AI Project Orchestrator",
+  "description": "AI-powered software project automation platform for planning, generating, validating, reviewing, and committing code changes task-by-task.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

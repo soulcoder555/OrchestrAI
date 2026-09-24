@@ -1,0 +1,195 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ProjectStatus {
+  CREATED
+  SCANNING
+  READY
+  PLANNING
+  EXECUTING
+  BLOCKED
+  COMPLETED
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  VALIDATING
+  AWAITING_APPROVAL
+  APPROVED
+  REJECTED
+  BLOCKED
+  COMPLETED
+}
+
+enum ChangeType {
+  CREATE
+  MODIFY
+  DELETE
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  projects     Project[]
+
+  @@map("users")
+}
+
+model Project {
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
+  goal            String?
+  status          ProjectStatus @default(CREATED)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository      Repository?
+  tasks           Task[]
+  facts           ProjectFact[]
+  commits         CommitRecord[]
+  activeBranch    String?
+  defaultBranch   String?       @default("main")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("projects")
+}
+
+model Repository {
+  id             String    @id @default(uuid())
+  projectId      String    @unique
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner          String
+  repoName       String
+  githubUrl      String
+  defaultBranch  String    @default("main")
+  workingBranch  String    @default("ai/orchestrator-execution")
+  isLocalDemo    Boolean   @default(false)
+  repoMapJson    String?   // Lightweight scanned repo map (files, configs, scripts, dependencies)
+  scannedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("repositories")
+}
+
+model ProjectFact {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category  String   // e.g. "tech_stack", "architecture", "convention", "validation", "user_decision"
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, key])
+  @@map("project_facts")
+}
+
+model Task {
+  id          String      @id @default(uuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orderIndex  Int
+  title       String
+  description String
+  status      TaskStatus  @default(PENDING)
+  retryCount  Int         @default(0)
+  maxRetries  Int         @default(2)
+  taskRuns    TaskRun[]
+  commits     CommitRecord[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([projectId, orderIndex])
+  @@map("tasks")
+}
+
+model TaskRun {
+  id             String          @id @default(uuid())
+  taskId         String
+  task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  attemptNumber  Int
+  status         String          // "RUNNING", "VALIDATION_FAILED", "AWAITING_APPROVAL", "APPROVED", "BLOCKED", "COMPLETED"
+  aiRun          AiRun?
+  validationRuns ValidationRun[]
+  artifacts      ArtifactChange[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@map("task_runs")
+}
+
+model AiRun {
+  id               String   @id @default(uuid())
+  taskRunId        String   @unique
+  taskRun          TaskRun  @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+  model            String
+  promptSummary    String
+  contextTokensEst Int?
+  rawOutput        String
+  parsedOutputJson String
+  error            String?
+  createdAt        DateTime @default(now())
+
+  @@map("ai_runs")
+}
+
+model ValidationRun {
+  id          String   @id @default(uuid())
+  taskRunId   String
+  taskRun     TaskRun  @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+  step        String   // "lint", "typecheck", "test", "final_check"
+  command     String
+  exitCode    Int
+  passed      Boolean
+  stdout      String
+  stderr      String
+  durationMs  Int
+  createdAt   DateTime @default(now())
+
+  @@map("validation_runs")
+}
+
+model ArtifactChange {
+  id           String     @id @default(uuid())
+  taskRunId    String
+  taskRun      TaskRun    @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+  filePath     String
+  changeType   ChangeType
+  diffPatch    String
+  originalText String?
+  modifiedText String?
+  explanation  String?
+  createdAt    DateTime   @default(now())
+
+  @@map("artifacts")
+}
+
+model CommitRecord {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  commitHash  String
+  branch      String
+  message     String
+  filesCount  Int
+  filesList   String   // JSON list of file paths
+  committedAt DateTime @default(now())
+
+  @@map("commits")
+}
